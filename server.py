@@ -15,7 +15,7 @@ host = "127.0.0.1"
 
 
 #config
-server_id = sys.argv[1]
+server_id = int(sys.argv[1])
 
 
 serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -28,5 +28,5 @@ print("CLIENT CONNECTED")
 
 
 while True:
-    msg = clientsocket.recv[1024]
-    print(msg)
+    msg = clientsocket.recv(1024)
+    print(msg.decode('ascii'))

@@ -9,9 +9,9 @@ import socket
 
 host = "127.0.0.1"
 
-client_id = sys.argv[1]
+client_id = int(sys.argv[1])
 
-port = 8000 + id
+port = 8000 + client_id
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
