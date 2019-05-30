@@ -15,7 +15,7 @@ host = "127.0.0.1"
 
 
 #config
-server_id = argv[1]
+server_id = sys.argv[1]
 
 
 serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

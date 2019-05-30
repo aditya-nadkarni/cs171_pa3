@@ -9,7 +9,7 @@ import socket
 
 host = "127.0.0.1"
 
-client_id = argv[1]
+client_id = sys.argv[1]
 
 port = 8000 + id
 
