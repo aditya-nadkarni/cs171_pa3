@@ -9,7 +9,9 @@ import socket
 
 host = "127.0.0.1"
 
-port = 8001
+client_id = argv[1]
+
+port = 8000 + id
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -23,9 +25,6 @@ s.connect((host, port))
 #start_new_thread(listen, () )
 
 while True:
-    msg = input("Enter a transaction: ")
+    msg = input("Enter a command: ")
     s.send(msg.encode('ascii'))
-    print("Transaction sent to server ", 1)
-    msg2 = s.recv(1024)
-    print(msg2.decode('ascii'))
 s.close()
