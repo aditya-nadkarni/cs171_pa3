@@ -17,6 +17,8 @@ s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 s.connect((host, port))
 
+s.send(sys.argv[1].encode('ascii'))
+
 #def listen():
 #    while True:
 #        msg = s.recv(1024)
