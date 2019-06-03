@@ -50,6 +50,10 @@ def listen_to_server(socketName, conn_socket):
         #msg = conn_socket.recv(1024)
         #print(socketName, "received the message: ", msg.decode('ascii'))
 
+# Message Structure:
+
+def toPaxosDict(origin, destination, message_type, seq_num, proc_id, depth, acceptNum = None, acceptVal = None):
+    return {'o': origin, 'd': destination, 'm': message_type, 'b': (seq_num, proc_id, depth), 'n': acceptNum, 'v': acceptVal}
 
 def paxos(value):
 
