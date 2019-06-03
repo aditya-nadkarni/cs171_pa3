@@ -9,15 +9,16 @@ import socket
 
 host = "127.0.0.1"
 
-client_id = int(sys.argv[1])
+client_id_name = sys.argv[1]
+client_id_int = int(client_id_name)
 
-port = 8000 + client_id
+port = 8000 + client_id_int
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 s.connect((host, port))
 
-s.send(sys.argv[1].encode('ascii'))
+s.send("client".encode('ascii'))
 
 #def listen():
 #    while True:
@@ -29,4 +30,14 @@ s.send(sys.argv[1].encode('ascii'))
 while True:
     msg = input("Enter a command: ")
     s.send(msg.encode('ascii'))
+    # try:
+    #     msg = s.recv(1024)
+    #     print(msg.decode('ascii'))
+    # except:
+    #     print("Disconnected from Server")
+    #     break
+    msg = s.recv(1024)
+    if (not msg):
+        print("Server is not available")
+    print(msg.decode('ascii'))
 s.close()
