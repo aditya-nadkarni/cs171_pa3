@@ -39,5 +39,6 @@ while True:
     msg = s.recv(1024)
     if (not msg):
         print("Server is not available")
+        break
     print(msg.decode('ascii'))
 s.close()
