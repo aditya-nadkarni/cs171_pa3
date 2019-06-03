@@ -33,6 +33,7 @@ sockets = dict()
 TRANS = []
 BLOCKCHAIN = []
 
+#Job of acceptor in paxos
 def listen_to_server(socketName, conn_socket):
     while True:
         print("listen_to_server: ", socketName)
@@ -50,8 +51,19 @@ def listen_to_server(socketName, conn_socket):
         #print(socketName, "received the message: ", msg.decode('ascii'))
 
 
+def paxos(value):
+
+
 def moneyTransfer(socketName, conn_socket, amount, client1, client2):
     print("Sending Transaction to server: ", socketName)
+
+    #Mine Nonce Here!!!!
+
+
+    #Initiate Paxos
+    paxos(value) #change value to block in blockchain
+
+
     conn_socket.send("Sending Transaction to server: ".encode('ascii'))
 
 def printBlockchain(socketName, conn_socket):
