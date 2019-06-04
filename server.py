@@ -27,14 +27,22 @@ serversocket.bind((host, port))
 serversocket.listen(5)
 
 
-sockets = dict()
+sockets = dict() #Make global
 
 
-TRANS = []
-BLOCKCHAIN = []
+TRANS = [] #Make global
+BLOCKCHAIN = [] #Make global
+
+SEQUENCE_NUMBER = 0 #Make global
+DEPTH = 0 #Make global
 
 #Job of acceptor in paxos
 def listen_to_server(socketName, conn_socket):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
     while True:
         print("listen_to_server: ", socketName)
         try:
@@ -49,41 +57,101 @@ def listen_to_server(socketName, conn_socket):
             break
         #msg = conn_socket.recv(1024)
         #print(socketName, "received the message: ", msg.decode('ascii'))
+        msg_decoded = msg.decode('ascii')
+        msg_dict = json.loads(msg_decoded)
+
+        msg_type = msg_dict['msg']
+
+        if (msg_type == "prepare"):
+            pass
+        elif (msg_type == "ack"):
+            pass
+        elif (msg_type == "accept_request"):
+            pass
+        elif (msg_type == "accept"):
+            pass
+        elif (msg_type == "decision"):
+            pass
+
+
+
 
 # Message Structure:
 
-def toPaxosDict(origin, destination, message_type, seq_num, proc_id, depth, acceptNum = None, acceptVal = None):
-    return {'o': origin, 'd': destination, 'm': message_type, 'b': (seq_num, proc_id, depth), 'n': acceptNum, 'v': acceptVal}
+def toPaxosDict(message_type, seq_num, proc_id, depth, value = None, acceptNum = None, acceptVal = None):
+    return {'msg': message_type, 'bal': (seq_num, proc_id, depth), 'val': value, 'aNum': acceptNum, 'aVal': acceptVal}
 
-def paxos(value):
+#ballot = {"seq_num":, "proc_id":, "depth":}
+
+#prepare = {"prepare", ballot}
+
+#ack = {"ack", ...}
+
+def paxosProposal(value):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
+    proposal = toPaxosProposal("prepare", SEQUENCE_NUMBER, server_id_int, DEPTH)
+    proposal_string = json.dumps(proposal) #MAYBE ADD SEPERATING CHARACTERS
+    for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
+        sockets[s_id].send(proposal_string.encode('ascii'))
+
 
 
 def moneyTransfer(socketName, conn_socket, amount, client1, client2):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
     print("Sending Transaction to server: ", socketName)
 
     #Mine Nonce Here!!!!
 
-
+    conn_socket.send("Added Transaction To TRANS: ".encode('ascii'))
     #Initiate Paxos
-    paxos(value) #change value to block in blockchain
+    value = 1
+    paxosProposal(value)
 
 
-    conn_socket.send("Sending Transaction to server: ".encode('ascii'))
+
 
 def printBlockchain(socketName, conn_socket):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
     print("Printing Blockchain: ")
     conn_socket.send("Printing Blockchain: ".encode('ascii'))
 
 def printBalance(socketName, conn_socket):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
     print("Printing Balance: ")
     conn_socket.send("Printing Balance: ".encode('ascii'))
 
 def printSet(socketName, conn_socket):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
     print("Printing Set: ")
     conn_socket.send("Printing Set: ".encode('ascii'))
 
 
 def listen_to_client(socketName, conn_socket):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
     while True:
         print("listen_to_client")
         try:
@@ -152,7 +220,7 @@ def ConnectWithServers():
                 s_port = 8000 + int(s_id)
                 s.connect((host, s_port))
                 print("Connected with", s_id)
-                s.send(s_id.encode('ascii'))
+                s.send(server_id_name.encode('ascii'))
                 start_new_thread(listen_to_server, (s_id, s) )
             except:
                 print("Failed to connect with", s_id)
