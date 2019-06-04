@@ -53,14 +53,14 @@ MY_VAL = 0
 
 def send_msg(socketName, msg):
     #rand int between 1 and 5
-    delay = random.randint(1,5)
+    delay = random.randint(1,4)
     time.sleep(delay)
     socketName.send(msg)
 
-def check_ack_num():
+def check_ack_num(ballot):
     global ACK_COUNTER
     time.sleep(25)
-    if (ACK_COUNTER < majority):
+    if (ballot[depth] = BallACK_COUNTER < majority):
         ACK_COUNTER = 0
         print("Send new proposal w/ new ballot num")
         #send new proposal
@@ -80,6 +80,10 @@ def listen_to_server(socketName, conn_socket):
     global PROP_BAL_NUM # Highest received ballot number by Proposer from an ack in phase 1
     global PROP_BAL_VAL # Highest received ballot number's value by Proposer from an ack in phase 1
     global MY_VAL
+
+    amLeader = False
+    gotQuorum = False
+
     while True:
         print("listen_to_server: ", socketName)
         try:
@@ -130,8 +134,8 @@ def listen_to_server(socketName, conn_socket):
                         PROP_BAL_VAL = msg_dict['aVal']
                         MY_VAL = PROP_BAL_VAL
 
-                if(ACK_COUNTER >= majority):
-                    ACK_COUNTER = 0
+                if(ACK_COUNTER >= majority and (not amLeader)):
+                    amLeader = True
                     #send accept-request to everyone
                     print("MY_VAL (acc-req):", MY_VAL)
                     acc_req_msg = toPaxosDict("accept-request", bal[0], bal[1], bal[2], MY_VAL)
@@ -159,8 +163,8 @@ def listen_to_server(socketName, conn_socket):
             if bal == (SEQUENCE_NUMBER, server_id_int, DEPTH):
                 ACC_COUNTER += 1
 
-                if(ACC_COUNTER >= majority):
-                    ACC_COUNTER = 0
+                if(ACC_COUNTER >= majority and not gotQuorum):
+                    gotQuorum = True
                     print("Adding Block to Blockchain: ", msg_dict['val'])
                     BLOCKCHAIN.append(msg_dict['val'])
 
@@ -182,6 +186,8 @@ def listen_to_server(socketName, conn_socket):
                     PROP_BAL_NUM = (0, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
                     PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
                     MY_VAL = 0
+                    gotQuorum = False
+                    amLeader = False
 
 
         elif (msg_type == "decision"):
@@ -196,6 +202,8 @@ def listen_to_server(socketName, conn_socket):
             PROP_BAL_NUM = (0, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
             PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
             MY_VAL = 0
+            gotQuorum = False
+            amLeader = False
 
 
 
