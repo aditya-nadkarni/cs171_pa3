@@ -3,6 +3,7 @@ import threading
 import config
 import sys
 import queue
+import random
 from _thread import *
 import socket
 import json
@@ -12,12 +13,17 @@ from collections import OrderedDict
 
 host = "127.0.0.1"
 
+#TO DO:
+#LOCKS
+#Globsl acknowledge counter, accept counter, last accepted Val, last accepted Num,
 
 
 #config
 server_id_name = sys.argv[1]
 server_id_int = int(server_id_name)
 other_server_ids = set(["1", "2", "3", "4", "5"]) - set([server_id_name])
+num_servers = 5
+majority = int(num_servers/2 + 1)
 
 serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 #serversocket.settimeout(20)
@@ -36,6 +42,28 @@ BLOCKCHAIN = [] #Make global
 SEQUENCE_NUMBER = 0 #Make global
 DEPTH = 0 #Make global
 
+ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
+ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
+ACC_NUM = (0, 0, 0) # Last accepted ballot number in phase 2
+ACC_VAL = None # last accepted value in phase 2
+BALLOT_NUM = (0, 0, 0) # Highest received ballot number by acceptor
+PROP_BAL_NUM = (0, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
+PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
+MY_VAL = 0
+
+def send_msg(socketName, msg):
+    #rand int between 1 and 5
+    delay = random.randint(1,5)
+    sleep(delay)
+    sockName.send(msg)
+
+def check_ack_num():
+    sleep(25)
+    if (ACK_COUNTER < majority):
+        ACK_COUNTER = 0
+        print("Send new proposal w/ new ballot num")
+        #send new proposal
+
 #Job of acceptor in paxos
 def listen_to_server(socketName, conn_socket):
     global sockets
@@ -43,18 +71,29 @@ def listen_to_server(socketName, conn_socket):
     global BLOCKCHAIN
     global SEQUENCE_NUMBER
     global DEPTH
+    global ACK_COUNTER  # Number of acknowledgements received by proposer in phase 1
+    global ACC_COUNTER # Number of accepts received by proposer in phase 2
+    global ACC_NUM # Last accepted ballot number in phase 2
+    global ACC_VAL # last accepted value in phase 2
+    global BALLOT_NUM # Highest received ballot number by acceptor
+    global PROP_BAL_NUM # Highest received ballot number by Proposer from an ack in phase 1
+    global PROP_BAL_VAL # Highest received ballot number's value by Proposer from an ack in phase 1
     while True:
         print("listen_to_server: ", socketName)
         try:
             msg = conn_socket.recv(1024)
             print("Message: ", msg)
             if (not msg):
-                print ("Disconnected")
+                print ("Disconnected from:", socketName)
+                del sockets[socketName]
                 break
             print(socketName, "received the message: ", msg.decode('ascii'))
         except socket.error:
             print ("Disconnected")
+            del sockets[socketName]
             break
+        except KeyError:
+            print("We fucked up")
         #msg = conn_socket.recv(1024)
         #print(socketName, "received the message: ", msg.decode('ascii'))
         msg_decoded = msg.decode('ascii')
@@ -63,9 +102,40 @@ def listen_to_server(socketName, conn_socket):
         msg_type = msg_dict['msg']
 
         if (msg_type == "prepare"):
-            pass
+            bal = tuple(msg_dict['bal'])
+            if (bal >= BALLOT_NUM):
+                    #USE LOCK
+                    BALLOT_NUM = bal
+                    #LOCK
+
+                    # SEND "ACK" to bal[1] (proc_id)
+                    ack_msg = toPaxosDict("ack", bal[0], bal[1], bal[2], None, ACC_NUM, ACC_VAL)
+                    ack_string = json.dumps(ack_msg)
+
+                    start_new_thread(send_msg, (sockets[bal[1]], ack_string.encode('ascii')))
+            elif(bal[2] < DEPTH):
+                #Update the sucker with blockchain
+                print("Need to send updated block chain to:", bal[1])
+                pass
         elif (msg_type == "ack"):
-            pass
+            bal = tuple(msg_dict['bal'])
+            if bal == (SEQUENCE_NUMBER, server_id_int, DEPTH):
+                ACK_COUNTER += 1
+
+                if(bal >= PROP_BAL_NUM):
+                        PROP_BAL_NUM = bal
+                        PROP_BAL_VAL = msg_dict['aVal']
+                        MY_VAL = PROP_BAL_VAL
+
+                if(ACK_COUNTER >= majority):
+                    #send accept-request to everyone
+                    acc_req_msg = toPaxosDict("accept-request", bal[0], bal[1], bal[2], MY_VAL)
+                    acc_req_string = json.dumps(acc-req_msg)
+
+                    for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
+                        if s_id in sockets:
+                            start_new_thread(send_msg, (sockets[s_id], acc_req_string.encode('ascii')))
+
         elif (msg_type == "accept_request"):
             pass
         elif (msg_type == "accept"):
@@ -87,16 +157,21 @@ def toPaxosDict(message_type, seq_num, proc_id, depth, value = None, acceptNum =
 
 #ack = {"ack", ...}
 
-def paxosProposal(value):
+def paxosProposal():
     global sockets
     global TRANS
     global BLOCKCHAIN
     global SEQUENCE_NUMBER
     global DEPTH
-    proposal = toPaxosProposal("prepare", SEQUENCE_NUMBER, server_id_int, DEPTH)
+    SEQUENCE_NUMBER += 1
+    proposal = toPaxosDict("prepare", SEQUENCE_NUMBER, server_id_int, DEPTH)
     proposal_string = json.dumps(proposal) #MAYBE ADD SEPERATING CHARACTERS
     for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
-        sockets[s_id].send(proposal_string.encode('ascii'))
+        if s_id in sockets:
+            start_new_thread(send_msg, (sockets[s_id], proposal_string.encode('ascii')))
+            #sockets[s_id].send(proposal_string.encode('ascii'))
+    start_new_thread(check_ack_num, ())
+    # NOW gotta wait for acks from everyone, then listener thread will start Proposal Phase 2 thread. HOWEVER need timeout in case no acks come in
 
 
 
@@ -112,8 +187,8 @@ def moneyTransfer(socketName, conn_socket, amount, client1, client2):
 
     conn_socket.send("Added Transaction To TRANS: ".encode('ascii'))
     #Initiate Paxos
-    value = 1
-    paxosProposal(value)
+    MY_VAL = 7777
+    start_new_thread(paxosProposal, ()) #Thread and add delay
 
 
 
