@@ -49,7 +49,7 @@ BLOCKCHAIN = [] #Make global
 SEQUENCE_NUMBER = 0 #Make global
 DEPTH = 0 #Make global
 
-BLOCK_SIZE = 1
+BLOCK_SIZE = 2
 moneyz = {"A": 100, "B": 100, "C": 100, "D": 100, "E": 100}
 '''
     ***** HELPER FUNCTIONS *****
@@ -498,7 +498,7 @@ def printBalance(socketName, conn_socket):
     global SEQUENCE_NUMBER
     global DEPTH
     print("Printing Balance: ")
-    conn_socket.send("Printing Balance: ".encode('ascii'))
+    conn_socket.send(json.dumps(moneyz).encode('ascii'))
 
 def printSet(socketName, conn_socket):
     global sockets
