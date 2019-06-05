@@ -9,6 +9,7 @@ import socket
 import json
 import time
 import hashlib
+import string
 from queue import PriorityQueue
 from collections import OrderedDict
 
@@ -48,6 +49,8 @@ BLOCKCHAIN = [] #Make global
 SEQUENCE_NUMBER = 0 #Make global
 DEPTH = 0 #Make global
 
+BLOCK_SIZE = 1
+moneyz = {"A": 100, "B": 100, "C": 100, "D": 100, "E": 100}
 '''
     ***** HELPER FUNCTIONS *****
 '''
@@ -56,6 +59,21 @@ def send_msg(socketName, msg):
     delay = random.randint(1,2)
     time.sleep(delay)
     socketName.send(msg)
+
+def decodeStringTuple(str):
+    stripped_msg = str.replace(" ", "")
+    open_paren = stripped_msg.find("(")
+    comma1 = stripped_msg.find(",", open_paren + 2)
+    comma2 = stripped_msg.find(",", comma1 + 2)
+    close_paren  = stripped_msg.find(")", comma2 + 2)
+    if (open_paren != -1 and comma1 != -1 and comma2 != -1 and close_paren != -1):
+        amount = int(stripped_msg[open_paren + 1: comma1])
+        client1 = stripped_msg[comma1 + 1: comma2]
+        client2 = stripped_msg[comma2 + 1: close_paren]
+        return amount, client1, client2
+    return -1, -1, -1
+
+
 
 '''
     ***** PROPOSER GLOBAL VARIABLES *****
@@ -87,23 +105,45 @@ def toPaxosDict(message_type, depth, seq_num, proc_id, value = None, acceptNum =
 #     MineNonce() from partial block. Create full block
 #     Call paxosProposal() with Block
 #     Call TimeOut Function
-def initializePaxos(n = 2):
+def initiatePaxos(n = 2):
     global TRANS
-    if len(TRANS) >= 2:
+    if len(TRANS) >= BLOCK_SIZE:
         #Form block (just transactions concatenated for now)
-        blockVal = (TRANS[0] + ";" + TRANS[1])
-        #Mine nonce
+        # blockVal = ""
+        # for i in range(BLOCK_SIZE):
+        #     if i < (BLOCK_SIZE - 1):
+        #         blockVal = blockVal + TRANS[i] + ";"
+        #     else:
+        #         blockVal = blockVal + TRANS[i]
 
-        #Call paxosProposal() with block
-        paxosProposal(blockVal)
+        #Verify transaction are legal
+        allLegal = True
+        for i in range(BLOCK_SIZE):
+            amount, src, dest = decodeStringTuple(TRANS[i])
 
-        #Call timeOut Function
-        timeOut(n)
+            if (moneyz[src]-amount) < 0:
+                allLegal = False
+                del TRANS[i]
+                print("Invalid Transaction Detected..")
+
+        #Form block if all legal
+        if allLegal:
+            blockVal = create_block()
+            #Mine nonce
+
+            #Call paxosProposal() with block
+            paxosProposal(blockVal)
+
+            #Call timeOut Function
+            timeOut(n)
+        else:
+            initiatePaxos()
+
 
 #Sleep exponentially increasing seconds, then call initiatePaxos() again
 def timeOut(n):
     time.sleep(15 + n)
-    initializePaxos(n**2)
+    initiatePaxos(2**n)
 
 #Sends "prepare" request to start Phase 1 of Proposer
 def paxosProposal(blockVal):
@@ -149,9 +189,6 @@ def listen_to_server(socketName, conn_socket):
     gotQuorum = False
 
     while True:
-        print("listen_to_server: ", socketName)
-
-
         try:
             all_msg = conn_socket.recv(1024)
             # print("Message: ", msg)
@@ -159,7 +196,6 @@ def listen_to_server(socketName, conn_socket):
                 print ("Disconnected from:", socketName)
                 del sockets[socketName]
                 break
-            print(socketName, "received the message: ", all_msg.decode('ascii'))
         except socket.error:
             print ("Disconnected")
             del sockets[socketName]
@@ -172,8 +208,13 @@ def listen_to_server(socketName, conn_socket):
 
         txt = all_msg.decode('ascii')
         messages = list(filter(None, txt.split('\0')))
-        for msg in messages:
 
+        # print("*  <*> ALL MESSAGES:", messages)
+        print("NUMBER OF MESSAGES: ", len(messages))
+        if(len(messages) > 1):
+            print (messages)
+        for msg in messages:
+            print("MSG:", msg)
 
             msg_dict = json.loads(msg)
 
@@ -191,8 +232,6 @@ def listen_to_server(socketName, conn_socket):
                         # SEND "ACK" to bal[1] (proc_id)
                         ack_msg = toPaxosDict("ack", bal[0], bal[1], bal[2], None, ACC_NUM, ACC_VAL)
                         ack_string = json.dumps(ack_msg) + '\0'
-                        print("bal[2]:", str(bal[2]))
-                        print("Sockets:", sockets)
                         start_new_thread(send_msg, (sockets[str(bal[2])], ack_string.encode('ascii')))
                 elif(bal[0] < DEPTH):
                     #Update the sucker with blockchain
@@ -218,7 +257,7 @@ def listen_to_server(socketName, conn_socket):
                     if(ACK_COUNTER >= majority and (not amLeader)):
                         amLeader = True
                         #send accept-request to everyone
-                        print("MY_VAL (acc-req):", MY_VAL)
+                        # print("MY_VAL (acc-req):", MY_VAL)
                         acc_req_msg = toPaxosDict("accept-request", bal[0], bal[1], bal[2], MY_VAL)
                         acc_req_string = json.dumps(acc_req_msg) + '\0'
                         ACC_NUM = bal
@@ -230,7 +269,7 @@ def listen_to_server(socketName, conn_socket):
             #On acceptor
             elif (msg_type == "accept-request"):
                 bal = tuple(msg_dict['bal'])
-                print("BALLOT_NUM:", BALLOT_NUM)
+                # print("BALLOT_NUM:", BALLOT_NUM)
                 if(bal >= BALLOT_NUM):
                     SEQUENCE_NUMBER = bal[1]
                     ACC_NUM = bal
@@ -252,13 +291,24 @@ def listen_to_server(socketName, conn_socket):
                         BLOCKCHAIN.append(msg_dict['val'])
                         DEPTH += 1
                         #get transactions from block value
-                        blockTrans = msg_dict['val'].split(";")
+                        blockTrans = json.loads(msg_dict['val'])['transactions']
                         print("Block Trans: ", blockTrans)
                         print("TRANS: ", TRANS)
                         #Delete from TRANS if your transactions were added
-                        if len(TRANS) >= 2:
-                            if(blockTrans[0] == TRANS[0] and blockTrans[1] == TRANS[1]):
-                                del TRANS[0:2]
+                        if len(TRANS) >= BLOCK_SIZE:
+                            isSame = True
+                            for i in range(BLOCK_SIZE):
+                                if blockTrans[i] != TRANS[i]:
+                                    isSame = False
+                                    break
+                            if(isSame):
+                                del TRANS[0:BLOCK_SIZE]
+
+                        for trans in blockTrans:
+                            amount, src, dest = decodeStringTuple(trans)
+
+                            moneyz[dest] += amount
+                            moneyz[src] -= amount
                         #send accept-request to everyone
                         dec_msg = toPaxosDict("decision", bal[0], bal[1], bal[2], msg_dict['val'])
                         dec_string = json.dumps(dec_msg) + '\0'
@@ -282,8 +332,6 @@ def listen_to_server(socketName, conn_socket):
 
             #On acceptor and proposer side
             elif (msg_type == "decision"):
-
-
                 val = msg_dict['val']
                 bal = tuple(msg_dict['bal'])
                 #Depth is stale, need an update
@@ -297,30 +345,56 @@ def listen_to_server(socketName, conn_socket):
                 #Going to add to blockchain
                 else:
                     if not bal[0] < DEPTH:
-                        BLOCKCHAIN.append(val)
-                        DEPTH+=1
-                        if(bal[1] > SEQUENCE_NUMBER):
-                            SEQUENCE_NUMBER = bal[1]
+                        #Verify transactions are legal & Update moneyz
+                        blockTrans = json.loads(val)['transactions']
+                        allLegal = True
+                        for trans in blockTrans:
+                            amount, src, dest = decodeStringTuple(trans)
 
-                        #get transactions from block value
-                        blockTrans = val.split(";")
-                        print("Block Trans: ", blockTrans)
-                        print("TRANS: ", TRANS)
-                        #Delete from TRANS if your transactions were added
-                        if len(TRANS) >= 2:
-                            if(blockTrans[0] == TRANS[0] and blockTrans[1] == TRANS[1]):
-                                del TRANS[0:2]
+                            if (moneyz[src]-amount) < 0:
+                                allLegal = False
 
-                        ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
-                        ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
-                        ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
-                        ACC_VAL = None # last accepted value in phase 2
-                        BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
-                        PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
-                        PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
-                        MY_VAL = 0
-                        gotQuorum = False
-                        amLeader = False
+                        if allLegal:
+                            for trans in blockTrans:
+                                amount, src, dest = decodeStringTuple(trans)
+
+                                moneyz[dest] += amount
+                                moneyz[src] -= amount
+
+                            #Add transaction to blockchain
+                            print("Adding Block to Blockchain: ", val)
+                            BLOCKCHAIN.append(val)
+                            DEPTH+=1
+                            if(bal[1] > SEQUENCE_NUMBER):
+                                SEQUENCE_NUMBER = bal[1]
+
+                            #get transactions from block value
+                            print("Block Trans: ", blockTrans)
+                            print("TRANS: ", TRANS)
+                            #Delete from TRANS if your transactions were added
+                            if len(TRANS) >= BLOCK_SIZE:
+                                isSame = True
+                                for i in range(BLOCK_SIZE):
+                                    if blockTrans[i] != TRANS[i]:
+                                        isSame = False
+                                        break
+
+                                if(isSame):
+                                    del TRANS[0:BLOCK_SIZE]
+
+                            print("New TRANS:", TRANS)
+                            ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
+                            ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
+                            ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
+                            ACC_VAL = None # last accepted value in phase 2
+                            BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
+                            PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
+                            PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
+                            MY_VAL = 0
+                            gotQuorum = False
+                            amLeader = False
+                        else:
+                            print("Did not add block after decision. Idk how. Someone fked up")
             elif (msg_type == "update"):
                 new_blockchain = msg_dict['val']
                 new_depth = msg_dict['bal'][0]
@@ -345,29 +419,40 @@ def listen_to_server(socketName, conn_socket):
 '''
 
 def create_block():
-    if len(TRANS) >= 2:
-        if not DEPTH == 0:
-            return {
-                "header": {"depth": DEPTH,"prev_hash": hashlib.sha224(BLOCKCHAIN[DEPTH-1]).hexdigest(), "nonce": None},
-                "transactions": TRANS[0:2]
+    if len(TRANS) >= BLOCK_SIZE:
+        nonce = mine_nonce(TRANS[0:BLOCK_SIZE])
+        if DEPTH != 0:
+            block_dict = {
+                "header": {"depth": DEPTH,"prev_hash": hashlib.sha256(BLOCKCHAIN[DEPTH-1].encode('ascii')).hexdigest(), "nonce": nonce},
+                "transactions": TRANS[0:BLOCK_SIZE]
             }
+            return json.dumps(block_dict)
         else:
-            return {
-                "header": {"depth": DEPTH,"prev_hash": hashlib.sha224(BLOCKCHAIN[DEPTH-1]).hexdigest(), "nonce": None},
-                "transactions": TRANS[0:2]
+            block_dict = {
+                "header": {"depth": DEPTH,"prev_hash": None, "nonce": nonce},
+                "transactions": TRANS[0:BLOCK_SIZE]
             }
+            return json.dumps(block_dict)
     else:
         return -1
 
-# def check_transactions():
-#     ## Find a way to do this
-#     pass
-#
-# def mine_nonce(t1, t2):
-#     potential_nonce = ""
-#     for i in range(10):
-#         potential_nonce +=
-#     hash = hashlib.sha224(t1+t2+potential_nonce).hexdigest()
+def check_transactions():
+    ## Find a way to do this
+    pass
+
+def mine_nonce(trans):
+    combined_trans = ""
+    for t in trans:
+        combined_trans += t
+    while True:
+        potential_nonce = ""
+        for i in range(10):
+            potential_nonce += random.choice(string.ascii_letters)
+        pre_hash = combined_trans+potential_nonce
+        hash = hashlib.sha256(pre_hash.encode('ascii')).hexdigest()
+        if hash[len(hash)-1] == '0' or hash[len(hash)-1] == '1':
+            return potential_nonce
+
 
 
 
@@ -381,14 +466,14 @@ def moneyTransfer(socketName, conn_socket, amount, client1, client2):
     global SEQUENCE_NUMBER
     global DEPTH
     global MY_VAL
-    print("Sending Transaction to server: ", socketName)
+    # print("Sending Transaction to server: ", socketName)
 
     TRANS.append("(" + str(amount) + "," + str(client1) + "," + str(client2) + ")")
 
     conn_socket.send("Added Transaction To TRANS: ".encode('ascii'))
     #Initiate Paxos
     #MY_VAL = amount
-    start_new_thread(initializePaxos, ()) #Thread
+    start_new_thread(initiatePaxos, ()) #Thread
 
 
 
@@ -432,10 +517,10 @@ def listen_to_client(socketName, conn_socket):
     global SEQUENCE_NUMBER
     global DEPTH
     while True:
-        print("listen_to_client")
+        # print("listen_to_client")
         try:
             msg = conn_socket.recv(1024)
-            print("Message: ", msg)
+            # print("Message: ", msg)
             if (not msg):
                 print ("Disconnected")
                 break
