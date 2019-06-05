@@ -187,8 +187,13 @@ def listen_to_server(socketName, conn_socket):
                     start_new_thread(send_msg, (sockets[str(bal[2])], ack_string.encode('ascii')))
             elif(bal[0] < DEPTH):
                 #Update the sucker with blockchain
-                print("Need to send updated block chain to:", bal[1])
-                pass
+                #print("Need to send updated block chain to:", bal[1])
+                #pass
+                origin = bal[2]
+                #Send UPDATE back to origin
+                up_msg = toPaxosDict("update", DEPTH, SEQUENCE_NUMBER, server_id_int, BLOCKCHAIN)
+                up_string = json.dumps(up_msg)
+                start_new_thread(send_msg, (sockets[str(origin)], up_string.encode('ascii')))
         #On proposer
         elif (msg_type == "ack"):
             bal = tuple(msg_dict['bal'])
@@ -266,32 +271,55 @@ def listen_to_server(socketName, conn_socket):
 
         #On acceptor and proposer side
         elif (msg_type == "decision"):
+
+
             val = msg_dict['val']
-            BLOCKCHAIN.append(val)
-            DEPTH+=1
             bal = tuple(msg_dict['bal'])
-            if(bal[1] > SEQUENCE_NUMBER):
-                SEQUENCE_NUMBER = bal[1]
+            if (bal[0] > DEPTH):
+                #SEND UPDATE-REQUEST
+                origin = bal[2]
+                #Send UPDATE back to origin
+                up_req_msg = toPaxosDict("update-request", DEPTH, SEQUENCE_NUMBER, server_id_int)
+                up_req_string = json.dumps(up_req_msg)
+                start_new_thread(send_msg, (sockets[str(origin)], up_req_string.encode('ascii')))
+            else:
+                BLOCKCHAIN.append(val)
+                DEPTH+=1
+                if(bal[1] > SEQUENCE_NUMBER):
+                    SEQUENCE_NUMBER = bal[1]
 
-            #get transactions from block value
-            blockTrans = val.split(";")
-            print("Block Trans: ", blockTrans)
-            print("TRANS: ", TRANS)
-            #Delete from TRANS if your transactions were added
-            if len(TRANS) >= 2:
-                if(blockTrans[0] == TRANS[0] and blockTrans[1] == TRANS[1]):
-                    del TRANS[0:2]
+                #get transactions from block value
+                blockTrans = val.split(";")
+                print("Block Trans: ", blockTrans)
+                print("TRANS: ", TRANS)
+                #Delete from TRANS if your transactions were added
+                if len(TRANS) >= 2:
+                    if(blockTrans[0] == TRANS[0] and blockTrans[1] == TRANS[1]):
+                        del TRANS[0:2]
 
-            ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
-            ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
-            ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
-            ACC_VAL = None # last accepted value in phase 2
-            BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
-            PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
-            PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
-            MY_VAL = 0
-            gotQuorum = False
-            amLeader = False
+                ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
+                ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
+                ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
+                ACC_VAL = None # last accepted value in phase 2
+                BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
+                PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
+                PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
+                MY_VAL = 0
+                gotQuorum = False
+                amLeader = False
+        elif (msg_type == "update"):
+            new_blockchain = msg_dict['val']
+            new_depth = msg_dict['bal'][0]
+            if(new_depth > DEPTH):
+                BLOCKCHAIN = new_blockchain
+                DEPTH = new_depth
+        elif (msg_type == "update-request"):
+            origin = msg_dict['bal'][2]
+            #Send UPDATE back to origin
+            up_msg = toPaxosDict("update", DEPTH, SEQUENCE_NUMBER, server_id_int, BLOCKCHAIN)
+            up_string = json.dumps(up_msg)
+            start_new_thread(send_msg, (sockets[str(origin)], up_string.encode('ascii')))
+
 
 '''
     ***** BLOCKCHAIN FUNCTIONS *****
@@ -408,6 +436,7 @@ def handle_connection(socketName, clientSocket):
     if (socketName == "client"):
         start_new_thread(listen_to_client, (socketName, clientSocket) )
     else:
+        #OPTIONAL: SEND UPDATE to socket
         start_new_thread(listen_to_server, (socketName, clientSocket) )
 
 #BOOT UP PROTOCOL
