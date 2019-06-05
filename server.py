@@ -8,6 +8,7 @@ from _thread import *
 import socket
 import json
 import time
+import hashlib
 from queue import PriorityQueue
 from collections import OrderedDict
 
@@ -86,7 +87,7 @@ def toPaxosDict(message_type, depth, seq_num, proc_id, value = None, acceptNum =
 #     MineNonce() from partial block. Create full block
 #     Call paxosProposal() with Block
 #     Call TimeOut Function
-def initializePaxos():
+def initializePaxos(n = 2):
     global TRANS
     if len(TRANS) >= 2:
         #Form block (just transactions concatenated for now)
@@ -97,12 +98,12 @@ def initializePaxos():
         paxosProposal(blockVal)
 
         #Call timeOut Function
-        timeOut()
+        timeOut(n)
 
-#Sleep 25 seconds, then call initiatePaxos() again
-def timeOut():
-    time.sleep(25)
-    initializePaxos()
+#Sleep exponentially increasing seconds, then call initiatePaxos() again
+def timeOut(n):
+    time.sleep(15 + n)
+    initializePaxos(n**2)
 
 #Sends "prepare" request to start Phase 1 of Proposer
 def paxosProposal(blockVal):
@@ -200,7 +201,7 @@ def listen_to_server(socketName, conn_socket):
             if bal == (DEPTH, SEQUENCE_NUMBER, server_id_int):
                 ACK_COUNTER += 1
 
-                if(bal > PROP_BAL_NUM):
+                if(msg_dict['aVal'] and bal >= PROP_BAL_NUM):
                         SEQUENCE_NUMBER = bal[1]
                         PROP_BAL_NUM = bal
                         PROP_BAL_VAL = msg_dict['aVal']
@@ -254,6 +255,8 @@ def listen_to_server(socketName, conn_socket):
                     dec_msg = toPaxosDict("decision", bal[0], bal[1], bal[2], msg_dict['val'])
                     dec_string = json.dumps(dec_msg)
 
+                    if server_id_int == 1:
+                        time.sleep(10)
                     for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
                         if s_id in sockets:
                             start_new_thread(send_msg, (sockets[s_id], dec_string.encode('ascii')))
@@ -275,6 +278,7 @@ def listen_to_server(socketName, conn_socket):
 
             val = msg_dict['val']
             bal = tuple(msg_dict['bal'])
+            #Depth is stale, need an update
             if (bal[0] > DEPTH):
                 #SEND UPDATE-REQUEST
                 origin = bal[2]
@@ -282,31 +286,33 @@ def listen_to_server(socketName, conn_socket):
                 up_req_msg = toPaxosDict("update-request", DEPTH, SEQUENCE_NUMBER, server_id_int)
                 up_req_string = json.dumps(up_req_msg)
                 start_new_thread(send_msg, (sockets[str(origin)], up_req_string.encode('ascii')))
+            #Going to add to blockchain
             else:
-                BLOCKCHAIN.append(val)
-                DEPTH+=1
-                if(bal[1] > SEQUENCE_NUMBER):
-                    SEQUENCE_NUMBER = bal[1]
+                if not bal[0] < DEPTH:
+                    BLOCKCHAIN.append(val)
+                    DEPTH+=1
+                    if(bal[1] > SEQUENCE_NUMBER):
+                        SEQUENCE_NUMBER = bal[1]
 
-                #get transactions from block value
-                blockTrans = val.split(";")
-                print("Block Trans: ", blockTrans)
-                print("TRANS: ", TRANS)
-                #Delete from TRANS if your transactions were added
-                if len(TRANS) >= 2:
-                    if(blockTrans[0] == TRANS[0] and blockTrans[1] == TRANS[1]):
-                        del TRANS[0:2]
+                    #get transactions from block value
+                    blockTrans = val.split(";")
+                    print("Block Trans: ", blockTrans)
+                    print("TRANS: ", TRANS)
+                    #Delete from TRANS if your transactions were added
+                    if len(TRANS) >= 2:
+                        if(blockTrans[0] == TRANS[0] and blockTrans[1] == TRANS[1]):
+                            del TRANS[0:2]
 
-                ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
-                ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
-                ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
-                ACC_VAL = None # last accepted value in phase 2
-                BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
-                PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
-                PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
-                MY_VAL = 0
-                gotQuorum = False
-                amLeader = False
+                    ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
+                    ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
+                    ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
+                    ACC_VAL = None # last accepted value in phase 2
+                    BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
+                    PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
+                    PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
+                    MY_VAL = 0
+                    gotQuorum = False
+                    amLeader = False
         elif (msg_type == "update"):
             new_blockchain = msg_dict['val']
             new_depth = msg_dict['bal'][0]
@@ -323,8 +329,39 @@ def listen_to_server(socketName, conn_socket):
 
 '''
     ***** BLOCKCHAIN FUNCTIONS *****
+
+    Block = {
+        header: {curr_depth: , prev_hash: , nonce: }
+        transactions: [t1, t2]
+    }
 '''
-#Need to add
+
+def create_block():
+    if len(TRANS) >= 2:
+        if not DEPTH == 0:
+            return {
+                "header": {"depth": DEPTH,"prev_hash": hashlib.sha224(BLOCKCHAIN[DEPTH-1]).hexdigest(), "nonce": None},
+                "transactions": TRANS[0:2]
+            }
+        else:
+            return {
+                "header": {"depth": DEPTH,"prev_hash": hashlib.sha224(BLOCKCHAIN[DEPTH-1]).hexdigest(), "nonce": None},
+                "transactions": TRANS[0:2]
+            }
+    else:
+        return -1
+
+# def check_transactions():
+#     ## Find a way to do this
+#     pass
+#
+# def mine_nonce(t1, t2):
+#     potential_nonce = ""
+#     for i in range(10):
+#         potential_nonce +=
+#     hash = hashlib.sha224(t1+t2+potential_nonce).hexdigest()
+
+
 
 '''
     ***** CLIENT FUNCTIONS *****
