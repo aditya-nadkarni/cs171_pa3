@@ -135,7 +135,10 @@ def initiatePaxos(n = 2):
             paxosProposal(blockVal)
 
             #Call timeOut Function
-            timeOut(n)
+            if n < 32:
+                timeOut(n)
+            else:
+                timeOut(2)
         else:
             initiatePaxos()
 
@@ -308,9 +311,9 @@ def listen_to_server(socketName, conn_socket):
                         #send accept-request to everyone
                         dec_msg = toPaxosDict("decision", bal[0], bal[1], bal[2], msg_dict['val'])
                         dec_string = json.dumps(dec_msg) + '\0'
-
-                        if server_id_int == 1:
-                            time.sleep(10)
+                        
+                        #Delay sending decision (for testing purposes)
+                        time.sleep(10)
                         for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
                             if s_id in sockets:
                                 start_new_thread(send_msg, (sockets[s_id], dec_string.encode('ascii')))
@@ -477,7 +480,12 @@ def printBlockchain(socketName, conn_socket):
     global SEQUENCE_NUMBER
     global DEPTH
     print("Printing Blockchain: ")
-    bc = " ".join(str(b) for b in BLOCKCHAIN)
+    bc = ""
+    for block in BLOCKCHAIN:
+        blockchain_json = json.loads(block)
+        block_trans = blockchain_json["transactions"]
+
+        bc += str(block_trans) + "\n"
     if (not BLOCKCHAIN):
         conn_socket.send("Blockchain is empty".encode('ascii'))
     else:
@@ -499,7 +507,11 @@ def printSet(socketName, conn_socket):
     global SEQUENCE_NUMBER
     global DEPTH
     print("Printing Set: ")
-    conn_socket.send("Printing Set: ".encode('ascii'))
+    trans_str = str(TRANS)
+    if (not TRANS):
+        conn_socket.send("Set is empty".encode('ascii'))
+    else:
+        conn_socket.send(trans_str.encode('ascii'))
 
 
 def listen_to_client(socketName, conn_socket):
