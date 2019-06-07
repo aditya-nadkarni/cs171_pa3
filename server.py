@@ -1,7 +1,6 @@
 import os
 import threading
 from threading import Lock
-import config
 import sys
 import queue
 import random
@@ -11,6 +10,7 @@ import json
 import time
 import hashlib
 import string
+import pickle
 from queue import PriorityQueue
 from collections import OrderedDict
 
@@ -18,9 +18,7 @@ host = "127.0.0.1"
 
 '''
     ** TODO:
-        * LOCKS
-        * Finish rest of client functions
-        * Check that we remove crashed socket from list of sockets
+        * 
 '''
 
 '''
@@ -29,7 +27,12 @@ host = "127.0.0.1"
 #config
 server_id_name = sys.argv[1]
 server_id_int = int(server_id_name)
-other_server_ids = set(["1", "2", "3", "4", "5"]) - set([server_id_name])
+
+disconnect_nodes = []
+if (len(sys.argv) >= 3):
+    disconnect_nodes = sys.argv[2:len(sys.argv)]
+
+other_server_ids = set(["1", "2", "3", "4", "5"]) - set([server_id_name]) - set(disconnect_nodes)
 num_servers = 5
 majority = int(num_servers/2 + 1)
 
@@ -64,6 +67,8 @@ PAXOS_RUNNING_LOCK = Lock()
 
 SERVER_LOCK = Lock()
 ACK_LOCK = Lock()
+
+# p_file_name = "./disk/persistent_file_" + server_id_name 
 
 '''
     ***** HELPER FUNCTIONS *****
@@ -458,6 +463,9 @@ def listen_to_server(socketName, conn_socket):
                         BLOCKCHAIN.append(msg_dict['val'])
                         BLOCKCHAIN_LOCK.release()
 
+                        # with open(p_file_name, 'w') as f:
+                        #     pickle.dump(BLOCKCHAIN, f)
+
                         DEPTH_LOCK.acquire()
                         DEPTH += 1
                         DEPTH_LOCK.release()
@@ -562,6 +570,8 @@ def listen_to_server(socketName, conn_socket):
                             BLOCKCHAIN_LOCK.acquire()
                             BLOCKCHAIN.append(val)
                             BLOCKCHAIN_LOCK.release()
+                            # with open(p_file_name, 'a+') as f:
+                            #     pickle.dump(BLOCKCHAIN, f)
 
                             DEPTH_LOCK.acquire()
                             DEPTH+=1
@@ -938,6 +948,14 @@ def ConnectWithServers():
 
 ##################################################################################
 ConnectWithServers()
+
+# try:
+#     print("Trying to load blockchain..")
+#     with open(p_file_name, 'r') as f:
+#         BLOCKCHAIN = pickle.load(f)
+
+# except:
+#     print("Failed to read")
 
 while True:
     print("Main Loop")

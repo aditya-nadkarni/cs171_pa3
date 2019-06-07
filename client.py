@@ -1,6 +1,5 @@
 import os
 import threading
-import config
 import sys
 import queue
 import time
