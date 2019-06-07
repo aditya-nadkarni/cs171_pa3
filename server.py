@@ -1,5 +1,6 @@
 import os
 import threading
+from threading import Lock
 import config
 import sys
 import queue
@@ -18,8 +19,7 @@ host = "127.0.0.1"
 '''
     ** TODO:
         * LOCKS
-        * initializePaxos function
-        * timeOut function
+        * Finish rest of client functions
 '''
 
 '''
@@ -44,13 +44,20 @@ sockets = dict() #Make global
 
 
 TRANS = [] #Make global
+TRANS_LOCK = Lock() #Lock for TRANS
+
 BLOCKCHAIN = [] #Make global
+BLOCKCHAIN_LOCK = Lock()
 
 SEQUENCE_NUMBER = 0 #Make global
+SEQUENCE_NUM_LOCK = Lock()
 DEPTH = 0 #Make global
+DEPTH_LOCK = Lock()
 
 BLOCK_SIZE = 2
 moneyz = {"A": 100, "B": 100, "C": 100, "D": 100, "E": 100}
+moneyz_LOCK = Lock()
+
 '''
     ***** HELPER FUNCTIONS *****
 '''
@@ -79,18 +86,31 @@ def decodeStringTuple(str):
     ***** PROPOSER GLOBAL VARIABLES *****
 '''
 ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
+ACK_COUNTER_LOCK = Lock()
+
 ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
+ACC_COUNTER_LOCK = Lock()
 
 PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
+PROP_BAL_NUM_LOCK = Lock()
+
 PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
+PROP_BAL_VAL_LOCK = Lock()
 
 '''
     ***** ACCEPTOR GLOBAL VARIABLES *****
 '''
 MY_VAL = 0
+MY_VAL_LOCK = Lock()
+
 ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
+ACC_NUM_LOCK = Lock()
+
 ACC_VAL = None # last accepted value in phase 2
+ACC_VAL_LOCK = Lock()
+
 BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
+BALLOT_NUM_LOCK = Lock()
 
 '''
     ***** PAXOS FUNCTIONS *****
@@ -123,7 +143,11 @@ def initiatePaxos(n = 2):
 
             if (moneyz[src]-amount) < 0:
                 allLegal = False
+
+                TRANS_LOCK.acquire()
                 del TRANS[i]
+                TRANS_LOCK.release()
+
                 print("Invalid Transaction Detected..")
 
         #Form block if all legal
@@ -158,11 +182,25 @@ def paxosProposal(blockVal):
     global PROP_BAL_NUM
     global PROP_BAL_VAL
     global MY_VAL
+
+    MY_VAL_LOCK.acquire()
     MY_VAL = blockVal
+    MY_VAL_LOCK.release()
+
+    SEQUENCE_NUM_LOCK.acquire()
     SEQUENCE_NUMBER += 1
+    SEQUENCE_NUM_LOCK.release()
+
     proposal = toPaxosDict("prepare", DEPTH, SEQUENCE_NUMBER, server_id_int)
+    
+    PROP_BAL_NUM_LOCK.acquire()
     PROP_BAL_NUM = (DEPTH, SEQUENCE_NUMBER, server_id_int)
+    PROP_BAL_NUM_LOCK.release()
+
+    PROP_BAL_VAL_LOCK.acquire()
     PROP_BAL_VAL = MY_VAL
+    PROP_BAL_VAL_LOCK.release()
+
     proposal_string = json.dumps(proposal) + '\0' #MAYBE ADD SEPERATING CHARACTERS
     for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
         if s_id in sockets:
@@ -225,8 +263,13 @@ def listen_to_server(socketName, conn_socket):
                 bal = tuple(msg_dict['bal'])
                 if (bal >= BALLOT_NUM):
                         #USE LOCK
+                        BALLOT_NUM_LOCK.acquire()
                         BALLOT_NUM = bal
+                        BALLOT_NUM_LOCK.release()
+
+                        SEQUENCE_NUM_LOCK.acquire()
                         SEQUENCE_NUMBER = bal[1]
+                        SEQUENCE_NUM_LOCK.release()
                         #LOCK
 
                         # SEND "ACK" to bal[1] (proc_id)
@@ -246,23 +289,49 @@ def listen_to_server(socketName, conn_socket):
             elif (msg_type == "ack"):
                 bal = tuple(msg_dict['bal'])
                 if bal == (DEPTH, SEQUENCE_NUMBER, server_id_int):
+                    ACK_COUNTER_LOCK.acquire()
                     ACK_COUNTER += 1
+                    ACK_COUNTER_LOCK.release()
 
                     if(msg_dict['aVal'] and bal >= PROP_BAL_NUM):
+                            SEQUENCE_NUM_LOCK.acquire()
                             SEQUENCE_NUMBER = bal[1]
+                            SEQUENCE_NUM_LOCK.release()
+
+                            PROP_BAL_NUM_LOCK.acquire()
                             PROP_BAL_NUM = bal
+                            PROP_BAL_NUM_LOCK.release()
+
+                            PROP_BAL_VAL_LOCK.acquire()
                             PROP_BAL_VAL = msg_dict['aVal']
+                            PROP_BAL_VAL_LOCK.release()
+
+                            MY_VAL_LOCK.acquire()
                             MY_VAL = PROP_BAL_VAL
+                            MY_VAL_LOCK.release()
 
                     if(ACK_COUNTER >= majority):
+                        ACK_COUNTER_LOCK.acquire()
                         ACK_COUNTER = 0
+                        ACK_COUNTER_LOCK.release()
+
                         #send accept-request to everyone
                         # print("MY_VAL (acc-req):", MY_VAL)
                         acc_req_msg = toPaxosDict("accept-request", bal[0], bal[1], bal[2], MY_VAL)
                         acc_req_string = json.dumps(acc_req_msg) + '\0'
+
+                        ACC_NUM_LOCK.acquire()
                         ACC_NUM = bal
+                        ACC_NUM_LOCK.release()
+                        
+                        ACC_VAL_LOCK.acquire()
                         ACC_VAL = MY_VAL
+                        ACC_VAL_LOCK.release()
+
+                        ACC_COUNTER_LOCK.acquire()
                         ACC_COUNTER += 1
+                        ACC_COUNTER_LOCK.release()
+
                         for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
                             if s_id in sockets:
                                 start_new_thread(send_msg, (sockets[s_id], acc_req_string.encode('ascii')))
@@ -271,9 +340,18 @@ def listen_to_server(socketName, conn_socket):
                 bal = tuple(msg_dict['bal'])
                 # print("BALLOT_NUM:", BALLOT_NUM)
                 if(bal >= BALLOT_NUM):
+                    SEQUENCE_NUM_LOCK.acquire()
                     SEQUENCE_NUMBER = bal[1]
+                    SEQUENCE_NUM_LOCK.release()
+
+                    ACC_NUM_LOCK.acquire()
                     ACC_NUM = bal
+                    ACC_NUM_LOCK.release()
+
+                    ACC_VAL_LOCK.acquire()
                     ACC_VAL = msg_dict['val']
+                    ACC_VAL_LOCK.release()
+
                     #send accept back to bal[1]
                     acc_msg = toPaxosDict("accept", bal[0], bal[1], bal[2], ACC_VAL, ACC_NUM, ACC_VAL)
                     acc_string = json.dumps(acc_msg) + '\0'
@@ -283,12 +361,21 @@ def listen_to_server(socketName, conn_socket):
             elif (msg_type == "accept"):
                 bal = tuple(msg_dict['bal'])
                 if bal == (DEPTH, SEQUENCE_NUMBER, server_id_int):
+                    ACC_COUNTER_LOCK.acquire()
                     ACC_COUNTER += 1
+                    ACC_COUNTER_LOCK.release()
 
                     if(ACC_COUNTER >= majority):
                         print("Adding Block to Blockchain: ", msg_dict['val'])
+
+                        BLOCKCHAIN_LOCK.acquire()
                         BLOCKCHAIN.append(msg_dict['val'])
+                        BLOCKCHAIN_LOCK.release()
+
+                        DEPTH_LOCK.acquire()
                         DEPTH += 1
+                        DEPTH_LOCK.release()
+
                         #get transactions from block value
                         blockTrans = json.loads(msg_dict['val'])['transactions']
                         print("Block Trans: ", blockTrans)
@@ -301,31 +388,59 @@ def listen_to_server(socketName, conn_socket):
                                     isSame = False
                                     break
                             if(isSame):
+                                TRANS_LOCK.acquire()
                                 del TRANS[0:BLOCK_SIZE]
+                                TRANS_LOCK.release()
 
                         for trans in blockTrans:
                             amount, src, dest = decodeStringTuple(trans)
 
+                            moneyz_LOCK.acquire()
                             moneyz[dest] += amount
                             moneyz[src] -= amount
+                            moneyz_LOCK.release()
+
                         #send accept-request to everyone
                         dec_msg = toPaxosDict("decision", bal[0], bal[1], bal[2], msg_dict['val'])
                         dec_string = json.dumps(dec_msg) + '\0'
                         
-                        #Delay sending decision (for testing purposes)
+                        # ** Delay sending decision (for testing purposes)
                         time.sleep(10)
                         for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
                             if s_id in sockets:
                                 start_new_thread(send_msg, (sockets[s_id], dec_string.encode('ascii')))
 
+                        ACK_COUNTER_LOCK.acquire()
                         ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
+                        ACK_COUNTER_LOCK.release()
+
+                        ACC_COUNTER_LOCK.acquire()
                         ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
+                        ACC_COUNTER_LOCK.release()
+
+                        ACC_NUM_LOCK.acquire()
                         ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
+                        ACC_NUM_LOCK.release()
+
+                        ACC_VAL_LOCK.acquire()
                         ACC_VAL = None # last accepted value in phase 2
+                        ACC_VAL_LOCK.release()
+
+                        BALLOT_NUM_LOCK.acquire()
                         BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
+                        BALLOT_NUM_LOCK.release()
+
+                        PROP_BAL_NUM_LOCK.acquire()
                         PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
+                        PROP_BAL_NUM_LOCK.release()
+
+                        PROP_BAL_VAL_LOCK.acquire()
                         PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
+                        PROP_BAL_VAL_LOCK.release()
+
+                        MY_VAL_LOCK.acquire()
                         MY_VAL = 0
+                        MY_VAL_LOCK.release()
 
             #On acceptor and proposer side
             elif (msg_type == "decision"):
@@ -355,15 +470,26 @@ def listen_to_server(socketName, conn_socket):
                             for trans in blockTrans:
                                 amount, src, dest = decodeStringTuple(trans)
 
+                                moneyz_LOCK.acquire()
                                 moneyz[dest] += amount
                                 moneyz[src] -= amount
+                                moneyz_LOCK.release()
 
                             #Add transaction to blockchain
                             print("Adding Block to Blockchain: ", val)
+
+                            BLOCKCHAIN_LOCK.acquire()
                             BLOCKCHAIN.append(val)
+                            BLOCKCHAIN_LOCK.release()
+
+                            DEPTH_LOCK.acquire()
                             DEPTH+=1
+                            DEPTH_LOCK.release()
+
                             if(bal[1] > SEQUENCE_NUMBER):
+                                SEQUENCE_NUM_LOCK.acquire()
                                 SEQUENCE_NUMBER = bal[1]
+                                SEQUENCE_NUM_LOCK.release()
 
                             #get transactions from block value
                             print("Block Trans: ", blockTrans)
@@ -377,25 +503,57 @@ def listen_to_server(socketName, conn_socket):
                                         break
 
                                 if(isSame):
+                                    TRANS_LOCK.acquire()
                                     del TRANS[0:BLOCK_SIZE]
+                                    TRANS_LOCK.release()
 
                             print("New TRANS:", TRANS)
+
+                            ACK_COUNTER_LOCK.acquire()
                             ACK_COUNTER = 0 # Number of acknowledgements received by proposer in phase 1
+                            ACK_COUNTER_LOCK.release()
+
+                            ACC_COUNTER_LOCK.acquire()
                             ACC_COUNTER = 0 # Number of accepts received by proposer in phase 2
+                            ACC_COUNTER_LOCK.release()
+
+                            ACC_NUM_LOCK.acquire()
                             ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
+                            ACC_NUM_LOCK.release()
+
+                            ACC_VAL_LOCK.acquire()
                             ACC_VAL = None # last accepted value in phase 2
+                            ACC_VAL_LOCK.release()
+
+                            BALLOT_NUM_LOCK.acquire()
                             BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
+                            BALLOT_NUM_LOCK.release()
+
+                            PROP_BAL_NUM_LOCK.acquire()
                             PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
+                            PROP_BAL_NUM_LOCK.release()
+
+                            PROP_BAL_VAL_LOCK.acquire()
                             PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
+                            PROP_BAL_VAL_LOCK.release()
+
+                            MY_VAL_LOCK.acquire()
                             MY_VAL = 0
+                            MY_VAL_LOCK.release()
                         else:
                             print("Did not add block after decision. Idk how. Someone fked up")
             elif (msg_type == "update"):
                 new_blockchain = msg_dict['val']
                 new_depth = msg_dict['bal'][0]
                 if(new_depth > DEPTH):
+                    BLOCKCHAIN_LOCK.acquire()
                     BLOCKCHAIN = new_blockchain
+                    BLOCKCHAIN_LOCK.release()
+
+                    DEPTH_LOCK.acquire()
                     DEPTH = new_depth
+                    DEPTH_LOCK.release()
+
             elif (msg_type == "update-request"):
                 origin = msg_dict['bal'][2]
                 #Send UPDATE back to origin
@@ -463,7 +621,9 @@ def moneyTransfer(socketName, conn_socket, amount, client1, client2):
     global MY_VAL
     # print("Sending Transaction to server: ", socketName)
 
+    TRANS_LOCK.acquire()
     TRANS.append("(" + str(amount) + "," + str(client1) + "," + str(client2) + ")")
+    TRANS_LOCK.release()
 
     conn_socket.send("Added Transaction To TRANS: ".encode('ascii'))
     #Initiate Paxos
