@@ -55,7 +55,7 @@ SEQUENCE_NUM_LOCK = Lock()
 DEPTH = 0 #Make global
 DEPTH_LOCK = Lock()
 
-BLOCK_SIZE = 1
+BLOCK_SIZE = 2
 moneyz = {"A": 100, "B": 100, "C": 100, "D": 100, "E": 100}
 moneyz_LOCK = Lock()
 
@@ -70,7 +70,7 @@ ACK_LOCK = Lock()
 '''
 def send_msg(socketName, msg):
     #rand int between 1 and 5
-    delay = random.randint(1,2)
+    delay = random.randint(0,100)/50.0
     time.sleep(delay)
     print("SENDING: ", msg.decode('ascii'))
     socketName.send(msg)
@@ -523,8 +523,8 @@ def listen_to_server(socketName, conn_socket):
                         dec_string = json.dumps(dec_msg) + '\0'
                         
                         # ** Delay sending decision (for testing purposes)
-                        print("  <<* Delaying decision *>>")
-                        time.sleep(10)
+                        # print("  <<* Delaying decision *>>")
+                        # time.sleep(10)
                         for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
                             if s_id in sockets:
                                 start_new_thread(send_msg, (sockets[s_id], dec_string.encode('ascii')))
@@ -788,6 +788,17 @@ def printBalance(socketName, conn_socket):
     global SEQUENCE_NUMBER
     global DEPTH
     print("Printing Balance: ")
+    alphabet = "-ABCDE"
+    conn_socket.send(str(moneyz[alphabet[server_id_int]]).encode('ascii'))
+
+def globalPrintBalance(socketName, conn_socket):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
+    print("Printing Balance: ")
+    alphabet = "-ABCDE"
     conn_socket.send(json.dumps(moneyz).encode('ascii'))
 
 def printHistory(socketName, conn_socket):
@@ -860,6 +871,8 @@ def listen_to_client(socketName, conn_socket):
             printHistory(socketName, conn_socket)
         elif (msg_decoded == "printBalance"):
             printBalance(socketName, conn_socket)
+        elif (msg_decoded == "globalPrintBalance"):
+            globalPrintBalance(socketName, conn_socket)
         elif (msg_decoded == "printSet"):
             printSet(socketName, conn_socket)
         elif (msg_decoded.find("moneyTransfer") != -1):
