@@ -35,7 +35,7 @@ while True:
     # except:
     #     print("Disconnected from Server")
     #     break
-    msg = s.recv(2048)
+    msg = s.recv(1024)
     if (not msg):
         print("Server is not available")
         break
