@@ -62,6 +62,9 @@ moneyz_LOCK = Lock()
 PAXOS_RUNNING = False
 PAXOS_RUNNING_LOCK = Lock()
 
+SERVER_LOCK = Lock()
+ACK_LOCK = Lock()
+
 '''
     ***** HELPER FUNCTIONS *****
 '''
@@ -85,6 +88,16 @@ def decodeStringTuple(str):
         return amount, client1, client2
     return -1, -1, -1
 
+def getMoneyz(blockchain):
+    return_moneyz = {"A": 100, "B": 100, "C": 100, "D": 100, "E": 100}
+    for block in blockchain:
+        decoded_block = json.loads(block)
+        for t in decoded_block['transactions']:
+            amount, src, dest = decodeStringTuple(t)
+            return_moneyz[src] -= amount
+            return_moneyz[dest] += amount
+            # print("returnMoneyz:", return_moneyz)
+    return return_moneyz
 
 
 '''
@@ -271,6 +284,8 @@ def listen_to_server(socketName, conn_socket):
     global PROP_BAL_NUM # Highest received ballot number by Proposer from an ack in phase 1
     global PROP_BAL_VAL # Highest received ballot number's value by Proposer from an ack in phase 1
     global MY_VAL
+    global moneyz
+    global moneyz_LOCK
 
     while True:
         try:
@@ -330,11 +345,11 @@ def listen_to_server(socketName, conn_socket):
                     #Send UPDATE back to origin
                     orig_depth = msg_dict['bal'][0]
 
-                    val = BLOCKCHAIN[orig_depth: min(DEPTH, orig_depth + 4)]
+                    val = BLOCKCHAIN[orig_depth: min(DEPTH, orig_depth + 8)]
                     
                     
 
-                    up_msg = toPaxosDict("update", DEPTH, SEQUENCE_NUMBER, server_id_int, val)
+                    up_msg = toPaxosDict("update", orig_depth, SEQUENCE_NUMBER, server_id_int, val)                    
                     up_string = json.dumps(up_msg) + '\0'
                     start_new_thread(send_msg, (sockets[str(origin)], up_string.encode('ascii')))
             #On proposer
@@ -352,6 +367,7 @@ def listen_to_server(socketName, conn_socket):
                         ACK_COUNTER_LOCK.acquire()
                         ACK_COUNTER += 1
                         ACK_COUNTER_LOCK.release()
+                        print(" ** ACK COUNTER: ", ACK_COUNTER)
 
                         if(msg_dict['aVal'] and aNum >= PROP_BAL_NUM):
                             SEQUENCE_NUM_LOCK.acquire()
@@ -370,6 +386,7 @@ def listen_to_server(socketName, conn_socket):
                             MY_VAL = PROP_BAL_VAL
                             MY_VAL_LOCK.release()
 
+                        ACK_LOCK.acquire()
                         if(ACK_COUNTER == majority):
                             print("GOT ALL MY ACKS! LITYY!!")
                             ACK_COUNTER_LOCK.acquire()
@@ -396,6 +413,7 @@ def listen_to_server(socketName, conn_socket):
                             for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
                                 if s_id in sockets:
                                     start_new_thread(send_msg, (sockets[s_id], acc_req_string.encode('ascii')))
+                        ACK_LOCK.release()
             #On acceptor
             elif (msg_type == "accept-request"):
                 bal = tuple(msg_dict['bal'])
@@ -427,6 +445,7 @@ def listen_to_server(socketName, conn_socket):
                     ACC_COUNTER_LOCK.release()
                     print("** ACC_COUNTER: ", ACC_COUNTER)
 
+                    SERVER_LOCK.acquire()
                     if(ACC_COUNTER == majority):
                         print("GOT ALL MY ACCEPTS! LIT!!")
                         ACC_COUNTER_LOCK.acquire()
@@ -509,6 +528,7 @@ def listen_to_server(socketName, conn_socket):
                         for s_id in other_server_ids: #To do: add partition functionality, make other_server_ids a parameter
                             if s_id in sockets:
                                 start_new_thread(send_msg, (sockets[s_id], dec_string.encode('ascii')))
+                    SERVER_LOCK.release()
 
             #On acceptor and proposer side
             elif (msg_type == "decision"):
@@ -519,13 +539,8 @@ def listen_to_server(socketName, conn_socket):
                     #SEND UPDATE-REQUEST + '\0'
                     origin = msg_dict['bal'][2]
                     #Send UPDATE back to origin
-                    orig_depth = msg_dict['bal'][0]
 
-                    val = BLOCKCHAIN[orig_depth: min(DEPTH, orig_depth + 4)]
-                    
-                    
-
-                    up_msg = toPaxosDict("update", DEPTH, SEQUENCE_NUMBER, server_id_int, val)
+                    up_msg = toPaxosDict("update-request", DEPTH, SEQUENCE_NUMBER, server_id_int)
                     up_string = json.dumps(up_msg) + '\0'
                     start_new_thread(send_msg, (sockets[str(origin)], up_string.encode('ascii')))
                 #Going to add to blockchain
@@ -541,14 +556,6 @@ def listen_to_server(socketName, conn_socket):
                                 allLegal = False
 
                         if allLegal:
-                            for trans in blockTrans:
-                                amount, src, dest = decodeStringTuple(trans)
-
-                                moneyz_LOCK.acquire()
-                                moneyz[dest] += amount
-                                moneyz[src] -= amount
-                                moneyz_LOCK.release()
-
                             #Add transaction to blockchain
                             print("Adding Block to Blockchain: ", val)
 
@@ -596,6 +603,13 @@ def listen_to_server(socketName, conn_socket):
                             #get transactions from block value
                             print("Block Trans: ", blockTrans)
                             print("TRANS: ", TRANS)
+                            for trans in blockTrans:
+                                amount, src, dest = decodeStringTuple(trans)
+
+                                moneyz_LOCK.acquire()
+                                moneyz[dest] += amount
+                                moneyz[src] -= amount
+                                moneyz_LOCK.release()
                             #Delete from TRANS if your transactions were added
                             if len(TRANS) >= BLOCK_SIZE:
                                 isSame = True
@@ -614,54 +628,64 @@ def listen_to_server(socketName, conn_socket):
                             print("Did not add block after decision. Idk how. Someone fked up")
             elif (msg_type == "update"):
                 new_blockchain = msg_dict['val']
-                new_depth = msg_dict['bal'][0]
-                if(new_depth > DEPTH):
-                    BLOCKCHAIN_LOCK.acquire()
-                    BLOCKCHAIN += new_blockchain
-                    BLOCKCHAIN_LOCK.release()
+                start_depth = msg_dict['bal'][0]
 
-                    DEPTH_LOCK.acquire()
-                    DEPTH = len(BLOCKCHAIN)
-                    DEPTH_LOCK.release()
+                BLOCKCHAIN_LOCK.acquire()
+                for i in range(len(new_blockchain)):
+                    if(start_depth+i < len(BLOCKCHAIN)):
+                        BLOCKCHAIN[start_depth+i] = new_blockchain[i]
+                    else:
+                        BLOCKCHAIN.append(new_blockchain[i])
+                BLOCKCHAIN_LOCK.release()
 
-                    SEQUENCE_NUM_LOCK.acquire()
-                    SEQUENCE_NUMBER = max(SEQUENCE_NUMBER, msg_dict['bal'][1])
-                    SEQUENCE_NUM_LOCK.release()
+                DEPTH_LOCK.acquire()
+                DEPTH = len(BLOCKCHAIN)
+                DEPTH_LOCK.release()
 
-                    ACC_NUM_LOCK.acquire()
-                    ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
-                    ACC_NUM_LOCK.release()
+                moneyz_LOCK.acquire()
+                moneyz = getMoneyz(BLOCKCHAIN)
+                moneyz_LOCK.release()
 
-                    ACK_COUNTER_LOCK.acquire()
-                    ACK_COUNTER = 0 # Number of accepts received by proposer in phase 2
-                    ACK_COUNTER_LOCK.release()
 
-                    ACC_VAL_LOCK.acquire()
-                    ACC_VAL = None # last accepted value in phase 2
-                    ACC_VAL_LOCK.release()
 
-                    BALLOT_NUM_LOCK.acquire()
-                    BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
-                    BALLOT_NUM_LOCK.release()
+                SEQUENCE_NUM_LOCK.acquire()
+                SEQUENCE_NUMBER = max(SEQUENCE_NUMBER, msg_dict['bal'][1])
+                SEQUENCE_NUM_LOCK.release()
 
-                    PROP_BAL_NUM_LOCK.acquire()
-                    PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
-                    PROP_BAL_NUM_LOCK.release()
+                ACC_NUM_LOCK.acquire()
+                ACC_NUM = (DEPTH, 0, 0) # Last accepted ballot number in phase 2
+                ACC_NUM_LOCK.release()
 
-                    PROP_BAL_VAL_LOCK.acquire()
-                    PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
-                    PROP_BAL_VAL_LOCK.release()
+                ACK_COUNTER_LOCK.acquire()
+                ACK_COUNTER = 0 # Number of accepts received by proposer in phase 2
+                ACK_COUNTER_LOCK.release()
+
+                ACC_VAL_LOCK.acquire()
+                ACC_VAL = None # last accepted value in phase 2
+                ACC_VAL_LOCK.release()
+
+                BALLOT_NUM_LOCK.acquire()
+                BALLOT_NUM = (DEPTH, 0, 0) # Highest received ballot number by acceptor
+                BALLOT_NUM_LOCK.release()
+
+                PROP_BAL_NUM_LOCK.acquire()
+                PROP_BAL_NUM = (DEPTH, 0, 0) # Highest received ballot number by Proposer from an ack in phase 1
+                PROP_BAL_NUM_LOCK.release()
+
+                PROP_BAL_VAL_LOCK.acquire()
+                PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
+                PROP_BAL_VAL_LOCK.release()
 
             elif (msg_type == "update-request"):
                 origin = msg_dict['bal'][2]
                 #Send UPDATE back to origin
                 orig_depth = msg_dict['bal'][0]
 
-                val = BLOCKCHAIN[orig_depth: min(DEPTH, orig_depth + 4)]
+                val = BLOCKCHAIN[orig_depth: min(DEPTH, orig_depth + 8)]
                 
                 
 
-                up_msg = toPaxosDict("update", DEPTH, SEQUENCE_NUMBER, server_id_int, val)
+                up_msg = toPaxosDict("update", orig_depth, SEQUENCE_NUMBER, server_id_int, val)
                 up_string = json.dumps(up_msg) + '\0'
                 start_new_thread(send_msg, (sockets[str(origin)], up_string.encode('ascii')))
 
@@ -766,7 +790,7 @@ def printBalance(socketName, conn_socket):
     print("Printing Balance: ")
     conn_socket.send(json.dumps(moneyz).encode('ascii'))
 
-def printSet(socketName, conn_socket):
+def printHistory(socketName, conn_socket):
     global sockets
     global TRANS
     global BLOCKCHAIN
@@ -792,6 +816,21 @@ def printSet(socketName, conn_socket):
     #     conn_socket.send(trans_str.encode('ascii'))
 
 
+def printSet(socketName, conn_socket):
+    global sockets
+    global TRANS
+    global BLOCKCHAIN
+    global SEQUENCE_NUMBER
+    global DEPTH
+    print("Printing Set: ")
+    tran = ""
+    tran = "".join(TRANS)
+    if (not TRANS):
+        conn_socket.send("No pending transactions:".encode('ascii'))
+    else:
+        conn_socket.send(tran.encode('ascii'))
+
+
 def listen_to_client(socketName, conn_socket):
     global sockets
     global TRANS
@@ -804,17 +843,21 @@ def listen_to_client(socketName, conn_socket):
             msg = conn_socket.recv(2048)
             # print("Message: ", msg)
             if (not msg):
-                print ("Disconnected")
+                print ("Disconnected: ", socketName)
+                del sockets[socketName]
                 break
             print(socketName, "received the message: ", msg.decode('ascii'))
         except socket.error:
-            print ("Disconnected")
+            print ("Disconnected:", socketName)
+            del sockets[socketName]
             break
         #msg = conn_socket.recv(1024)
         #print(socketName, "received the message: ", msg.decode('ascii'))
         msg_decoded = msg.decode('ascii')
         if (msg_decoded == "printBlockchain"):
             printBlockchain(socketName, conn_socket)
+        elif (msg_decoded == "printHistory"):
+            printHistory(socketName, conn_socket)
         elif (msg_decoded == "printBalance"):
             printBalance(socketName, conn_socket)
         elif (msg_decoded == "printSet"):
