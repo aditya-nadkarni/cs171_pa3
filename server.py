@@ -18,7 +18,7 @@ host = "127.0.0.1"
 
 '''
     ** TODO:
-        * 
+        *
 '''
 
 '''
@@ -68,7 +68,7 @@ PAXOS_RUNNING_LOCK = Lock()
 SERVER_LOCK = Lock()
 ACK_LOCK = Lock()
 
-# p_file_name = "./disk/persistent_file_" + server_id_name 
+p_file_name = "ledger" + server_id_name + ".txt"
 
 '''
     ***** HELPER FUNCTIONS *****
@@ -236,7 +236,7 @@ def paxosProposal(blockVal):
     PROP_BAL_VAL = None # Highest received ballot number's value by Proposer from an ack in phase 1
     PROP_BAL_VAL_LOCK.release()
 
-    
+
 
 
     MY_VAL_LOCK.acquire()
@@ -351,10 +351,10 @@ def listen_to_server(socketName, conn_socket):
                     orig_depth = msg_dict['bal'][0]
 
                     val = BLOCKCHAIN[orig_depth: min(DEPTH, orig_depth + 8)]
-                    
-                    
 
-                    up_msg = toPaxosDict("update", orig_depth, SEQUENCE_NUMBER, server_id_int, val)                    
+
+
+                    up_msg = toPaxosDict("update", orig_depth, SEQUENCE_NUMBER, server_id_int, val)
                     up_string = json.dumps(up_msg) + '\0'
                     start_new_thread(send_msg, (sockets[str(origin)], up_string.encode('ascii')))
             #On proposer
@@ -463,8 +463,8 @@ def listen_to_server(socketName, conn_socket):
                         BLOCKCHAIN.append(msg_dict['val'])
                         BLOCKCHAIN_LOCK.release()
 
-                        # with open(p_file_name, 'w') as f:
-                        #     pickle.dump(BLOCKCHAIN, f)
+                        with open(p_file_name, 'wb') as f:
+                            pickle.dump(BLOCKCHAIN, f)
 
                         DEPTH_LOCK.acquire()
                         DEPTH += 1
@@ -529,7 +529,7 @@ def listen_to_server(socketName, conn_socket):
                         #send accept-request to everyone
                         dec_msg = toPaxosDict("decision", bal[0], bal[1], bal[2], msg_dict['val'])
                         dec_string = json.dumps(dec_msg) + '\0'
-                        
+
                         # ** Delay sending decision (for testing purposes)
                         # print("  <<* Delaying decision *>>")
                         # time.sleep(10)
@@ -570,8 +570,8 @@ def listen_to_server(socketName, conn_socket):
                             BLOCKCHAIN_LOCK.acquire()
                             BLOCKCHAIN.append(val)
                             BLOCKCHAIN_LOCK.release()
-                            # with open(p_file_name, 'a+') as f:
-                            #     pickle.dump(BLOCKCHAIN, f)
+                            with open(p_file_name, 'wb') as f:
+                                pickle.dump(BLOCKCHAIN, f)
 
                             DEPTH_LOCK.acquire()
                             DEPTH+=1
@@ -692,8 +692,8 @@ def listen_to_server(socketName, conn_socket):
                 orig_depth = msg_dict['bal'][0]
 
                 val = BLOCKCHAIN[orig_depth: min(DEPTH, orig_depth + 8)]
-                
-                
+
+
 
                 up_msg = toPaxosDict("update", orig_depth, SEQUENCE_NUMBER, server_id_int, val)
                 up_string = json.dumps(up_msg) + '\0'
@@ -818,7 +818,7 @@ def printHistory(socketName, conn_socket):
     global SEQUENCE_NUMBER
     global DEPTH
     print("Printing Set: ")
-    
+
     bc = ""
     for block in BLOCKCHAIN:
         blockchain_json = json.loads(block)
@@ -829,7 +829,7 @@ def printHistory(socketName, conn_socket):
         conn_socket.send("Blockchain is empty".encode('ascii'))
     else:
         conn_socket.send(bc.encode('ascii'))
-    
+
     # trans_str = str(TRANS)
     # if (not TRANS):
     #     conn_socket.send("Set is empty".encode('ascii'))
@@ -949,13 +949,13 @@ def ConnectWithServers():
 ##################################################################################
 ConnectWithServers()
 
-# try:
-#     print("Trying to load blockchain..")
-#     with open(p_file_name, 'r') as f:
-#         BLOCKCHAIN = pickle.load(f)
+try:
+    print("Trying to load blockchain..")
+    with open(p_file_name, 'rb') as f:
+        BLOCKCHAIN = pickle.load(f)
 
-# except:
-#     print("Failed to read")
+except:
+    print("Failed to read")
 
 while True:
     print("Main Loop")
